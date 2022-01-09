@@ -1,19 +1,77 @@
 use crate::math::*;
+use std::ops::{Add, Mul};
+
+#[derive(Clone, Copy)]
+pub struct Color(f64, f64, f64);
+
+impl Color {
+    pub fn new(r: f64, g: f64, b: f64) -> Self {
+        Self(r, g, b)
+    }
+
+    pub fn red(self) -> f64 {
+        self.0
+    }
+
+    pub fn green(self) -> f64 {
+        self.1
+    }
+
+    pub fn blue(self) -> f64 {
+        self.2
+    }
+}
+
+impl Add for Color {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self(
+            min(self.red() + other.red(), 1.0),
+            min(self.green() + other.green(), 1.0),
+            min(self.blue() + other.blue(), 1.0),
+        )
+    }
+}
+
+impl Mul for Color {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self {
+        Self(
+            min(self.red() * other.red(), 1.0),
+            min(self.green() * other.green(), 1.0),
+            min(self.blue() * other.blue(), 1.0),
+        )
+    }
+}
+
+impl Mul<f64> for Color {
+    type Output = Self;
+
+    fn mul(self, value: f64) -> Self {
+        Self(
+            min(self.red() * value, 1.0),
+            min(self.green() * value, 1.0),
+            min(self.blue() * value, 1.0),
+        )
+    }
+}
 
 pub trait SceneObject {
     fn intersection_dist(&self, ray: Ray) -> f64;
     fn get_normal_at(&self, position: Vec3) -> Vec3;
-    fn get_color(&self) -> (f64, f64, f64);
+    fn get_color(&self) -> Color;
 }
 
 pub struct Sphere {
     position: Vec3,
     radius: f64,
-    color: (f64, f64, f64),
+    color: Color,
 }
 
 impl Sphere {
-    pub fn new(position: Vec3, radius: f64, color: (f64, f64, f64)) -> Self {
+    pub fn new(position: Vec3, radius: f64, color: Color) -> Self {
         Self {
             position,
             radius,
@@ -59,7 +117,7 @@ impl SceneObject for Sphere {
         Vec3::unit(position - self.position)
     }
 
-    fn get_color(&self) -> (f64, f64, f64) {
+    fn get_color(&self) -> Color {
         self.color
     }
 }
@@ -126,7 +184,7 @@ pub struct Screen {
     resolution: (u32, u32),
     top_left_point: Vec3,
     bottom_right_point: Vec3,
-    pixels: Vec<(f64, f64, f64)>,
+    pixels: Vec<Color>,
 }
 
 impl Screen {
@@ -173,15 +231,35 @@ impl RayTracer {
         }
     }
 
-    pub fn get_pixels(&self) -> &Vec<(f64, f64, f64)> {
+    pub fn get_pixels(&self) -> &Vec<Color> {
         &self.screen.pixels
     }
 
-    fn blinn_phong(&self, object: &dyn SceneObject) -> (f64, f64, f64) {
-        object.get_color()
+    fn blinn_phong(&self, object: &dyn SceneObject, intersection_position: Vec3) -> Color {
+        let intersection_to_light = Vec3::unit(self.light.position - intersection_position);
+        let intersection_to_cam = Vec3::unit(self.camera.position - intersection_position);
+        let normal = object.get_normal_at(intersection_position);
+        let shininess = 300.0;
+        let white = Color::new(1.0, 1.0, 1.0);
+
+        // Decrease diffuse color to get ambient color
+        let ambient = object.get_color() * 0.1 * white;
+
+        let diffuse = object.get_color() * white * Vec3::dot(intersection_to_light, normal);
+
+        let specular = object.get_color()
+            * 1.5 // Increase diffuse color to get specular color
+            * white
+            * Vec3::dot(
+                normal,
+                Vec3::unit(intersection_to_light + intersection_to_cam),
+            )
+            .powf(shininess / 4.);
+
+        ambient + diffuse + specular
     }
 
-    fn generate_pixel(&self, row: u32, col: u32) -> (f64, f64, f64) {
+    fn generate_pixel(&self, row: u32, col: u32) -> Color {
         let pixel_position = self.screen.get_pixel_position(row, col);
         let cam_to_pixel = pixel_position - self.camera.position;
         let primary_ray = Ray::new(self.camera.position, cam_to_pixel);
@@ -200,17 +278,13 @@ impl RayTracer {
             let is_shadowed = dist < f64::INFINITY;
 
             if is_shadowed {
-                // (0.0, 0.0, 0.0)
-                (
-                    object.get_color().0 / 3.0,
-                    object.get_color().1 / 3.0,
-                    object.get_color().2 / 3.0,
-                )
+                // Color::new(0.0, 0.0, 0.0)
+                object.get_color() * 0.1
             } else {
-                self.blinn_phong(object)
+                self.blinn_phong(object, intersection_position)
             }
         } else {
-            (0.0, 0.0, 0.0)
+            Color::new(0.0, 0.0, 0.0)
         }
     }
 

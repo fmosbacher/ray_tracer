@@ -1,5 +1,13 @@
 use std::ops::{Add, Mul, Sub};
 
+pub fn min(a: f64, b: f64) -> f64 {
+    if a < b {
+        a
+    } else {
+        b
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Vec3 {
     pub x: f64,
